@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, Users, FileText, UserPlus, CheckCircle, AlertCircle, LogIn } from 'lucide-react';
+import { Clock, Users, FileText, UserPlus, LogIn } from 'lucide-react';
+
+const API_URL = 'https://backend-asistdoc.onrender.com';
+const LOGO_CLOUDINARY = 'PEGA_AQUI_TU_URL_DE_CLOUDINARY';
 
 export default function App() {
   // === ESTADOS DE LOGIN ===
@@ -32,10 +35,10 @@ export default function App() {
   useEffect(() => {
     const cargarDatosDesdeLaravel = async () => {
       const token = localStorage.getItem('token');
-      
+
       // Cargar Asistencias (Historial)
       try {
-        const resAsist = await fetch('http://127.0.0.1:8000/api/asistencias-hoy');
+        const resAsist = await fetch(`${API_URL}/api/asistencias-hoy`);
         if (resAsist.ok) {
           const dataAsist = await resAsist.json();
           setMarcajesHoy(dataAsist);
@@ -44,8 +47,8 @@ export default function App() {
 
       // Cargar Docentes desde MySQL (Ruta protegida)
       try {
-        const resDoc = await fetch('http://127.0.0.1:8000/api/docentes', {
-          headers: { 
+        const resDoc = await fetch(`${API_URL}/api/docentes`, {
+          headers: {
             'Authorization': `Bearer ${token}`,
             'Accept': 'application/json'
           }
@@ -56,7 +59,7 @@ export default function App() {
         }
       } catch (e) { console.error("Error al cargar docentes"); }
     };
-    
+
     if (isAutenticado) {
       cargarDatosDesdeLaravel();
     }
@@ -66,20 +69,20 @@ export default function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/login', {
+      const response = await fetch(`${API_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ username: usuarioAdmin, password: passwordAdmin })
       });
       const data = await response.json();
-      
+
       if (response.ok && data.access_token) {
         setIsAutenticado(true);
-        localStorage.setItem('auth', 'true'); 
-        localStorage.setItem('token', data.access_token); 
+        localStorage.setItem('auth', 'true');
+        localStorage.setItem('token', data.access_token);
         setErrorLogin(false);
       } else {
-        setErrorLogin(true); 
+        setErrorLogin(true);
       }
     } catch (error) {
       setErrorLogin(true);
@@ -95,35 +98,35 @@ export default function App() {
   // === 3. MARCAR ASISTENCIA (CONEXIÓN CON LARAVEL) ===
   const handleMarcarAsistencia = async (e) => {
     e.preventDefault();
-    
+
     if (dni.length !== 8) {
       setMensaje({ tipo: 'error', texto: 'El DNI debe tener exactamente 8 dígitos.' });
       return;
     }
-    
+
     setCargando(true);
     setMensaje(null);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/asistencia/marcar', {
+      const response = await fetch(`${API_URL}/api/asistencia/marcar`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          'Accept': 'application/json' 
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         body: JSON.stringify({ dni })
       });
-      
+
       const data = await response.json();
 
       if (data.success) {
         const nuevoMarcaje = { docente: data.docente, hora: data.hora, estado: data.estado };
         setMarcajesHoy([nuevoMarcaje, ...marcajesHoy]);
         setMensaje({ tipo: 'exito', texto: `Tu marcaje se registró como: ${data.estado}` });
-        setDni(''); 
+        setDni('');
       } else {
         setMensaje({ tipo: 'error', texto: data.mensaje || 'Error al registrar' });
-        setDni(''); 
+        setDni('');
       }
     } catch (error) {
       setMensaje({ tipo: 'error', texto: 'Error de conexión con el servidor Laravel.' });
@@ -136,29 +139,29 @@ export default function App() {
   const handleAgregarDocente = async (e) => {
     e.preventDefault();
     if (!nuevoDni || !nuevoNombres || !nuevoApellidos) return;
-    
+
     const token = localStorage.getItem('token');
-    
+
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/docentes', {
+      const response = await fetch(`${API_URL}/api/docentes`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': `Bearer ${token}` 
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           dni: nuevoDni,
           nombres: nuevoNombres,
           apellidos: nuevoApellidos,
-          pin: '1234' 
+          pin: '1234'
         })
       });
-      
+
       const data = await response.json();
-      
+
       if (response.ok) {
-        setDocentesLista([...docentesLista, data]); 
+        setDocentesLista([...docentesLista, data]);
         setMensajeDocente({ tipo: 'exito', texto: `Docente guardado en la Base de Datos.` });
         setNuevoDni(''); setNuevoNombres(''); setNuevoApellidos('');
       } else {
@@ -199,7 +202,11 @@ export default function App() {
       <div className="flex h-screen bg-slate-100 items-center justify-center font-sans">
         <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
           <div className="flex flex-col items-center mb-8">
-            <div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center font-bold text-3xl text-white mb-4 shadow-lg shadow-blue-200">A</div>
+            <img
+              src={LOGO_CLOUDINARY}
+              alt="Escudo Colegio 1270 Juan El Bautista"
+              className="w-20 h-20 object-contain mb-4"
+            />
             <h2 className="text-2xl font-bold text-slate-800">Sistema AsistDoc</h2>
             <p className="text-slate-500 text-sm">Colegio 1270 Juan Bautista</p>
           </div>
@@ -229,7 +236,11 @@ export default function App() {
       <aside className="w-64 bg-[#1e293b] text-white flex flex-col justify-between print:hidden">
         <div>
           <div className="p-6 flex items-center gap-4 border-b border-slate-700/50">
-            <div className="bg-blue-600 w-10 h-10 rounded-lg flex items-center justify-center font-bold text-xl">A</div>
+            <img
+              src={LOGO_CLOUDINARY}
+              alt="Escudo Colegio 1270 Juan El Bautista"
+              className="w-10 h-10 object-contain rounded-lg bg-white p-1"
+            />
             <div>
               <h1 className="font-bold text-lg leading-tight">AsistDoc</h1>
               <p className="text-[11px] text-slate-400">Asistencia Docente</p>
@@ -333,7 +344,7 @@ export default function App() {
               <h2 className="text-3xl font-bold text-slate-800">Informes e Históricos</h2>
               <p className="text-slate-500 mt-1">Reportes de asistencia y tardanzas</p>
             </header>
-            
+
             <div className="hidden print:block mb-8 text-center">
               <h1 className="text-2xl font-bold uppercase text-slate-800">Colegio 1270 Juan Bautista</h1>
               <h2 className="text-xl font-semibold text-slate-600">Reporte Oficial de Asistencia Docente</h2>
