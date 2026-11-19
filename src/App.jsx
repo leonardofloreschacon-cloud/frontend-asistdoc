@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock, Users, FileText, UserPlus, LogIn } from 'lucide-react';
 
 const API_URL = 'https://backend-asistdoc.onrender.com';
-const LOGO_CLOUDINARY = 'PEGA_AQUI_TU_URL_DE_CLOUDINARY';
+const LOGO_CLOUDINARY = 'https://res.cloudinary.com/vonizhny/image/upload/v1795063446/Proyecto_nuevo_1.png';
 
 export default function App() {
   // === ESTADOS DE LOGIN ===
