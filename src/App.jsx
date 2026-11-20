@@ -49,6 +49,7 @@ export default function App() {
   const [misJustificaciones, setMisJustificaciones] = useState([]);
   const [fechaFalta, setFechaFalta] = useState('');
   const [motivoFalta, setMotivoFalta] = useState('');
+  const [archivoFalta, setArchivoFalta] = useState(null);
   const [mensajeJustificacion, setMensajeJustificacion] = useState(null);
 
   // Reloj en tiempo real
@@ -287,7 +288,7 @@ export default function App() {
     }
   };
 
-  // === 5. ENVIAR JUSTIFICACIÓN (DOCENTE) ===
+  // === 5. ENVIAR JUSTIFICACIÓN CON ARCHIVO (DOCENTE) ===
   const handleEnviarJustificacion = async (e) => {
     e.preventDefault();
     if (!fechaFalta || !motivoFalta.trim()) return;
@@ -295,18 +296,21 @@ export default function App() {
     const token = localStorage.getItem('token');
     setMensajeJustificacion(null);
 
+    const formData = new FormData();
+    formData.append('fecha_falta', fechaFalta);
+    formData.append('motivo', motivoFalta);
+    if (archivoFalta) {
+      formData.append('archivo', archivoFalta);
+    }
+
     try {
       const response = await fetch(`${API_URL}/api/justificaciones`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           Accept: 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({
-          fecha_falta: fechaFalta,
-          motivo: motivoFalta
-        })
+        body: formData
       });
 
       const data = await response.json();
@@ -315,6 +319,8 @@ export default function App() {
         setMensajeJustificacion({ tipo: 'exito', texto: 'Justificación enviada correctamente.' });
         setFechaFalta('');
         setMotivoFalta('');
+        setArchivoFalta(null);
+        e.target.reset();
         await cargarDatosDocente(token);
       } else {
         setMensajeJustificacion({
@@ -810,7 +816,7 @@ export default function App() {
           <div className="max-w-5xl mx-auto space-y-6">
             <div>
               <h1 className="text-2xl font-bold text-slate-800">Justificaciones de Docentes</h1>
-              <p className="text-sm text-slate-500">Revisa, aprueba o rechaza las solicitudes enviadas.</p>
+              <p className="text-sm text-slate-500">Revisa, descarga constancias y aprueba o rechaza las solicitudes.</p>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm p-6 border border-slate-200 overflow-x-auto">
@@ -820,6 +826,7 @@ export default function App() {
                     <th className="py-2">Docente</th>
                     <th className="py-2">Fecha Falta</th>
                     <th className="py-2">Motivo</th>
+                    <th className="py-2">Archivo</th>
                     <th className="py-2">Estado</th>
                     <th className="py-2">Acciones</th>
                   </tr>
@@ -833,6 +840,20 @@ export default function App() {
                       </td>
                       <td className="py-3 text-slate-600">{j.fecha_falta}</td>
                       <td className="py-3 text-slate-700 max-w-xs">{j.motivo}</td>
+                      <td className="py-3">
+                        {j.archivo_data ? (
+                          <a
+                            href={j.archivo_data}
+                            download={j.archivo_nombre || 'constancia'}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            Descargar
+                          </a>
+                        ) : (
+                          <span className="text-xs text-slate-400">Sin archivo</span>
+                        )}
+                      </td>
                       <td className="py-3">
                         <span
                           className={`text-xs px-2.5 py-1 rounded-full font-medium ${
@@ -868,7 +889,7 @@ export default function App() {
                   ))}
                   {justificacionesAdmin.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-6 text-center text-slate-400">
+                      <td colSpan={6} className="py-6 text-center text-slate-400">
                         No hay justificaciones registradas.
                       </td>
                     </tr>
@@ -934,7 +955,7 @@ export default function App() {
           <div className="max-w-4xl mx-auto space-y-6">
             <div>
               <h1 className="text-2xl font-bold text-slate-800">Enviar Justificación</h1>
-              <p className="text-sm text-slate-500">Registra el motivo de tu inasistencia o tardanza.</p>
+              <p className="text-sm text-slate-500">Registra el motivo de tu inasistencia o tardanza y adjunta tu constancia.</p>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm p-6 border border-slate-200">
@@ -959,6 +980,18 @@ export default function App() {
                     placeholder="Explica brevemente el motivo de tu inasistencia..."
                     required
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Adjuntar constancia o evidencia (opcional — PDF, JPG o PNG, máx. 2 MB)
+                  </label>
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    onChange={(e) => setArchivoFalta(e.target.files[0] || null)}
+                    className="block w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                   />
                 </div>
 
@@ -991,6 +1024,7 @@ export default function App() {
                   <tr className="border-b text-xs text-slate-500 uppercase">
                     <th className="py-2">Fecha Falta</th>
                     <th className="py-2">Motivo</th>
+                    <th className="py-2">Archivo</th>
                     <th className="py-2">Estado</th>
                   </tr>
                 </thead>
@@ -999,6 +1033,20 @@ export default function App() {
                     <tr key={j.id}>
                       <td className="py-3 text-slate-700">{j.fecha_falta}</td>
                       <td className="py-3 text-slate-700">{j.motivo}</td>
+                      <td className="py-3">
+                        {j.archivo_data ? (
+                          <a
+                            href={j.archivo_data}
+                            download={j.archivo_nombre || 'constancia'}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            Descargar
+                          </a>
+                        ) : (
+                          <span className="text-xs text-slate-400">Sin archivo</span>
+                        )}
+                      </td>
                       <td className="py-3">
                         <span
                           className={`text-xs px-2.5 py-1 rounded-full font-medium ${
@@ -1016,7 +1064,7 @@ export default function App() {
                   ))}
                   {misJustificaciones.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="py-6 text-center text-slate-400">
+                      <td colSpan={4} className="py-6 text-center text-slate-400">
                         No has enviado justificaciones todavía.
                       </td>
                     </tr>
