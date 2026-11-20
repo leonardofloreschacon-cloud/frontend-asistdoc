@@ -9,11 +9,29 @@ import {
   CheckCircle,
   XCircle,
   Send,
-  ClipboardList
+  ClipboardList,
+  Download,
+  Search
 } from 'lucide-react';
 
 const API_URL = 'https://backend-asistdoc.onrender.com';
 const LOGO_CLOUDINARY = 'https://res.cloudinary.com/vonizhny/image/upload/v1795063446/Proyecto_nuevo_1.png';
+
+// Helper para obtener fechas iniciales (primer día del mes y hoy) en formato YYYY-MM-DD
+const obtenerFechaHoyISO = () => {
+  const hoy = new Date();
+  const anio = hoy.getFullYear();
+  const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+  const dia = String(hoy.getDate()).padStart(2, '0');
+  return `${anio}-${mes}-${dia}`;
+};
+
+const obtenerInicioMesISO = () => {
+  const hoy = new Date();
+  const anio = hoy.getFullYear();
+  const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+  return `${anio}-${mes}-01`;
+};
 
 export default function App() {
   // === ESTADOS DE AUTENTICACIÓN Y ROL ===
@@ -34,6 +52,12 @@ export default function App() {
   const [cargando, setCargando] = useState(false);
   const [mensaje, setMensaje] = useState(null);
   const [marcajesHoy, setMarcajesHoy] = useState([]);
+
+  // === ESTADOS DE INFORMES Y EXPORTACIÓN (ADMIN) ===
+  const [fechaDesde, setFechaDesde] = useState(obtenerInicioMesISO());
+  const [fechaHasta, setFechaHasta] = useState(obtenerFechaHoyISO());
+  const [reporteAsistencias, setReporteAsistencias] = useState([]);
+  const [cargandoReporte, setCargandoReporte] = useState(false);
 
   // === ESTADOS DE GESTIÓN DE DOCENTES (ADMIN) ===
   const [docentesLista, setDocentesLista] = useState([]);
@@ -68,6 +92,29 @@ export default function App() {
       }
     } catch (e) {
       console.error('Error al cargar asistencias de hoy');
+    }
+  };
+
+  const cargarReporte = async (token, desde = fechaDesde, hasta = fechaHasta) => {
+    setCargandoReporte(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/asistencias/reporte?desde=${desde}&hasta=${hasta}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json'
+          }
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setReporteAsistencias(data);
+      }
+    } catch (e) {
+      console.error('Error al cargar el reporte por fechas');
+    } finally {
+      setCargandoReporte(false);
     }
   };
 
@@ -142,6 +189,7 @@ export default function App() {
       cargarAsistenciasHoy();
       cargarDocentes(token);
       cargarJustificacionesAdmin(token);
+      cargarReporte(token, fechaDesde, fechaHasta);
     } else if (rolUsuario === 'Docente') {
       cargarDatosDocente(token);
     }
@@ -233,6 +281,8 @@ export default function App() {
         setMensaje({ tipo: 'exito', texto: textoExito });
         setDni('');
         await cargarAsistenciasHoy();
+        const token = localStorage.getItem('token');
+        await cargarReporte(token, fechaDesde, fechaHasta);
       } else {
         setMensaje({ tipo: 'error', texto: data.mensaje || 'Error al registrar.' });
         setDni('');
@@ -244,7 +294,41 @@ export default function App() {
     }
   };
 
-  // === 4. AGREGAR DOCENTE (ADMIN) ===
+  // === 4. FILTRAR Y EXPORTAR REPORTE A EXCEL (.CSV) ===
+  const handleFiltrarReporte = (e) => {
+    e.preventDefault();
+    const token = localStorage.getItem('token');
+    cargarReporte(token, fechaDesde, fechaHasta);
+  };
+
+  const handleExportarExcel = () => {
+    if (reporteAsistencias.length === 0) return;
+
+    const encabezados = ['Fecha', 'DNI', 'Docente', 'Hora Entrada', 'Hora Salida', 'Estado'];
+    const filas = reporteAsistencias.map((m) => [
+      m.fecha,
+      m.dni || '',
+      `"${m.docente}"`,
+      m.hora,
+      m.hora_salida || 'Pendiente',
+      m.estado
+    ]);
+
+    // BOM (\uFEFF) para que Excel reconozca tildes y la letra ñ correctamente
+    const contenidoCSV =
+      '\uFEFF' +
+      [encabezados.join(','), ...filas.map((f) => f.join(','))].join('\n');
+
+    const blob = new Blob([contenidoCSV], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = `Reporte_AsistDoc_${fechaDesde}_a_${fechaHasta}.csv`;
+    enlace.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // === 5. AGREGAR DOCENTE (ADMIN) ===
   const handleAgregarDocente = async (e) => {
     e.preventDefault();
     if (!nuevoDni || !nuevoNombres || !nuevoApellidos || !nuevoPin) return;
@@ -288,7 +372,7 @@ export default function App() {
     }
   };
 
-  // === 5. ENVIAR JUSTIFICACIÓN CON ARCHIVO (DOCENTE) ===
+  // === 6. ENVIAR JUSTIFICACIÓN CON ARCHIVO (DOCENTE) ===
   const handleEnviarJustificacion = async (e) => {
     e.preventDefault();
     if (!fechaFalta || !motivoFalta.trim()) return;
@@ -333,7 +417,7 @@ export default function App() {
     }
   };
 
-  // === 6. APROBAR / RECHAZAR JUSTIFICACIÓN (ADMIN) ===
+  // === 7. APROBAR / RECHAZAR JUSTIFICACIÓN (ADMIN) ===
   const handleActualizarJustificacion = async (id, nuevoEstado) => {
     const token = localStorage.getItem('token');
 
@@ -474,7 +558,7 @@ export default function App() {
                   }`}
                 >
                   <FileText className="w-4 h-4" />
-                  Informes de hoy
+                  Informes e históricos
                 </button>
 
                 <button
@@ -759,19 +843,73 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= VISTA ADMIN: INFORMES DE HOY ================= */}
+        {/* ================= VISTA ADMIN: INFORMES E HISTÓRICOS ================= */}
         {rolUsuario === 'Administrador' && vistaActual === 'informes' && (
           <div className="max-w-5xl mx-auto space-y-6">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-800">Informes e Históricos de Hoy</h1>
-              <p className="text-sm text-slate-500">Control de entradas, salidas y tardanzas del día actual.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-800">Informes e Históricos</h1>
+                <p className="text-sm text-slate-500">Filtra las asistencias por rango de fechas y expórtalas a Excel.</p>
+              </div>
+
+              <button
+                onClick={handleExportarExcel}
+                disabled={reporteAsistencias.length === 0}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                Exportar Excel (.csv)
+              </button>
             </div>
 
+            {/* BARRA DE FILTROS */}
+            <form
+              onSubmit={handleFiltrarReporte}
+              className="bg-white rounded-2xl shadow-sm p-5 border border-slate-200 flex flex-wrap items-end gap-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">DESDE</label>
+                <input
+                  type="date"
+                  value={fechaDesde}
+                  onChange={(e) => setFechaDesde(e.target.value)}
+                  required
+                  className="px-3 py-2 border border-slate-300 rounded-xl text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">HASTA</label>
+                <input
+                  type="date"
+                  value={fechaHasta}
+                  onChange={(e) => setFechaHasta(e.target.value)}
+                  required
+                  className="px-3 py-2 border border-slate-300 rounded-xl text-sm"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={cargandoReporte}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl text-sm flex items-center gap-2 transition disabled:opacity-50"
+              >
+                <Search className="w-4 h-4" />
+                {cargandoReporte ? 'Buscando...' : 'Filtrar'}
+              </button>
+
+              <div className="ml-auto text-xs text-slate-500">
+                Total registros: <span className="font-bold text-slate-800">{reporteAsistencias.length}</span>
+              </div>
+            </form>
+
+            {/* TABLA DE RESULTADOS */}
             <div className="bg-white rounded-2xl shadow-sm p-6 border border-slate-200 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b text-xs text-slate-500 uppercase">
                     <th className="py-2">Fecha</th>
+                    <th className="py-2">DNI</th>
                     <th className="py-2">Docente</th>
                     <th className="py-2">Hora Entrada</th>
                     <th className="py-2">Hora Salida</th>
@@ -779,9 +917,10 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {marcajesHoy.map((m, i) => (
+                  {reporteAsistencias.map((m, i) => (
                     <tr key={m.id || i}>
                       <td className="py-3 text-slate-600">{m.fecha}</td>
+                      <td className="py-3 font-mono text-slate-500">{m.dni}</td>
                       <td className="py-3 font-medium text-slate-800">{m.docente}</td>
                       <td className="py-3 font-mono text-blue-700">{m.hora}</td>
                       <td className="py-3 font-mono text-slate-700">{m.hora_salida || 'Pendiente'}</td>
@@ -798,10 +937,10 @@ export default function App() {
                       </td>
                     </tr>
                   ))}
-                  {marcajesHoy.length === 0 && (
+                  {reporteAsistencias.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-6 text-center text-slate-400">
-                        No hay asistencias registradas hoy.
+                      <td colSpan={6} className="py-6 text-center text-slate-400">
+                        No hay asistencias registradas en el rango seleccionado.
                       </td>
                     </tr>
                   )}
