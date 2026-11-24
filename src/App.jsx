@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Clock,
   Users,
@@ -11,11 +11,64 @@ import {
   Send,
   ClipboardList,
   Download,
-  Search
+  Search,
+  Camera
 } from 'lucide-react';
 
 const API_URL = 'https://backend-asistdoc.onrender.com';
 const LOGO_CLOUDINARY = 'https://res.cloudinary.com/vonizhny/image/upload/v1795063446/Proyecto_nuevo_1.png';
+const CLOUDINARY_CLOUD_NAME = 'vonizhny';
+const CLOUDINARY_UPLOAD_PRESET = 'asistdoc_docentes';
+
+// Helper para subir foto del docente directo a Cloudinary
+const subirFotoCloudinary = async (archivo) => {
+  const formData = new FormData();
+  formData.append('file', archivo);
+  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+    {
+      method: 'POST',
+      body: formData
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error('No se pudo subir la imagen a Cloudinary.');
+  }
+
+  const data = await res.json();
+  return data.secure_url;
+};
+
+// Componente reutilizable para mostrar foto circular o iniciales del docente
+const AvatarDocente = ({ fotoUrl, nombre = '', className = 'w-10 h-10 text-xs' }) => {
+  const iniciales = nombre
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() || '')
+    .join('');
+
+  if (fotoUrl) {
+    return (
+      <img
+        src={fotoUrl}
+        alt={nombre}
+        className={`${className} rounded-full object-cover object-top border border-slate-200 shadow-sm shrink-0 bg-slate-100`}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`${className} rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center border border-blue-200 shrink-0`}
+    >
+      {iniciales || 'DOC'}
+    </div>
+  );
+};
 
 // Helper para obtener fechas iniciales (primer día del mes y hoy) en formato YYYY-MM-DD
 const obtenerFechaHoyISO = () => {
@@ -65,7 +118,11 @@ export default function App() {
   const [nuevoNombres, setNuevoNombres] = useState('');
   const [nuevoApellidos, setNuevoApellidos] = useState('');
   const [nuevoPin, setNuevoPin] = useState('1234');
+  const [nuevoFotoArchivo, setNuevoFotoArchivo] = useState(null);
+  const [previewFoto, setPreviewFoto] = useState(null);
+  const [guardandoDocente, setGuardandoDocente] = useState(false);
   const [mensajeDocente, setMensajeDocente] = useState(null);
+  const fotoInputRef = useRef(null);
 
   // === ESTADOS DE JUSTIFICACIONES (ADMIN Y DOCENTE) ===
   const [justificacionesAdmin, setJustificacionesAdmin] = useState([]);
@@ -275,10 +332,16 @@ export default function App() {
       if (data.success) {
         const textoExito =
           data.tipo === 'salida'
-            ? `Salida registrada para ${data.docente} a las ${data.hora_salida}`
-            : `Entrada registrada para ${data.docente} (${data.estado}) a las ${data.hora}`;
+            ? `Salida registrada a las ${data.hora_salida}`
+            : `Entrada registrada (${data.estado}) a las ${data.hora}`;
 
-        setMensaje({ tipo: 'exito', texto: textoExito });
+        setMensaje({
+          tipo: 'exito',
+          texto: textoExito,
+          docente: data.docente,
+          fotoUrl: data.foto_url,
+          estado: data.estado
+        });
         setDni('');
         await cargarAsistenciasHoy();
         const token = localStorage.getItem('token');
@@ -314,7 +377,6 @@ export default function App() {
       m.estado
     ]);
 
-    // BOM (\uFEFF) para que Excel reconozca tildes y la letra ñ correctamente
     const contenidoCSV =
       '\uFEFF' +
       [encabezados.join(','), ...filas.map((f) => f.join(','))].join('\n');
@@ -328,15 +390,31 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // === 5. AGREGAR DOCENTE (ADMIN) ===
+  // === 5. SELECCIONAR FOTO Y AGREGAR DOCENTE (ADMIN) ===
+  const handleSeleccionarFoto = (e) => {
+    const archivo = e.target.files?.[0] || null;
+    setNuevoFotoArchivo(archivo);
+    if (archivo) {
+      setPreviewFoto(URL.createObjectURL(archivo));
+    } else {
+      setPreviewFoto(null);
+    }
+  };
+
   const handleAgregarDocente = async (e) => {
     e.preventDefault();
     if (!nuevoDni || !nuevoNombres || !nuevoApellidos || !nuevoPin) return;
 
     const token = localStorage.getItem('token');
     setMensajeDocente(null);
+    setGuardandoDocente(true);
 
     try {
+      let fotoUrl = null;
+      if (nuevoFotoArchivo) {
+        fotoUrl = await subirFotoCloudinary(nuevoFotoArchivo);
+      }
+
       const response = await fetch(`${API_URL}/api/docentes`, {
         method: 'POST',
         headers: {
@@ -348,7 +426,8 @@ export default function App() {
           dni: nuevoDni,
           nombres: nuevoNombres,
           apellidos: nuevoApellidos,
-          pin: nuevoPin
+          pin: nuevoPin,
+          foto_url: fotoUrl
         })
       });
 
@@ -364,11 +443,21 @@ export default function App() {
         setNuevoNombres('');
         setNuevoApellidos('');
         setNuevoPin('1234');
+        setNuevoFotoArchivo(null);
+        setPreviewFoto(null);
+        if (fotoInputRef.current) {
+          fotoInputRef.current.value = '';
+        }
       } else {
         setMensajeDocente({ tipo: 'error', texto: data.message || 'Error al guardar docente.' });
       }
     } catch (error) {
-      setMensajeDocente({ tipo: 'error', texto: 'Error de conexión con Laravel.' });
+      setMensajeDocente({
+        tipo: 'error',
+        texto: error.message || 'Error de conexión con Laravel o Cloudinary.'
+      });
+    } finally {
+      setGuardandoDocente(false);
     }
   };
 
@@ -533,9 +622,8 @@ export default function App() {
               <>
                 <button
                   onClick={() => setVistaActual('marcar')}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
-                    vistaActual === 'marcar' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
-                  }`}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${vistaActual === 'marcar' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+                    }`}
                 >
                   <Clock className="w-4 h-4" />
                   Marcaje de asistencia
@@ -543,9 +631,8 @@ export default function App() {
 
                 <button
                   onClick={() => setVistaActual('docentes')}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
-                    vistaActual === 'docentes' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
-                  }`}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${vistaActual === 'docentes' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+                    }`}
                 >
                   <Users className="w-4 h-4" />
                   Gestión de docentes
@@ -553,9 +640,8 @@ export default function App() {
 
                 <button
                   onClick={() => setVistaActual('informes')}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
-                    vistaActual === 'informes' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
-                  }`}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${vistaActual === 'informes' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+                    }`}
                 >
                   <FileText className="w-4 h-4" />
                   Informes e históricos
@@ -563,11 +649,10 @@ export default function App() {
 
                 <button
                   onClick={() => setVistaActual('justificaciones-admin')}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
-                    vistaActual === 'justificaciones-admin'
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${vistaActual === 'justificaciones-admin'
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-300 hover:bg-slate-800'
-                  }`}
+                    }`}
                 >
                   <ClipboardList className="w-4 h-4" />
                   Justificaciones
@@ -577,11 +662,10 @@ export default function App() {
               <>
                 <button
                   onClick={() => setVistaActual('mis-asistencias')}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
-                    vistaActual === 'mis-asistencias'
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${vistaActual === 'mis-asistencias'
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-300 hover:bg-slate-800'
-                  }`}
+                    }`}
                 >
                   <Clock className="w-4 h-4" />
                   Mis Asistencias
@@ -589,11 +673,10 @@ export default function App() {
 
                 <button
                   onClick={() => setVistaActual('mis-justificaciones')}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
-                    vistaActual === 'mis-justificaciones'
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${vistaActual === 'mis-justificaciones'
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-300 hover:bg-slate-800'
-                  }`}
+                    }`}
                 >
                   <Send className="w-4 h-4" />
                   Enviar Justificación
@@ -640,9 +723,8 @@ export default function App() {
                     <p className="text-xs text-blue-200">HORA LÍMITE DE INGRESO</p>
                     <p className="text-xl font-bold">07:45:00</p>
                     <span
-                      className={`inline-block mt-1 text-xs px-2.5 py-0.5 rounded-full ${
-                        esTardanza ? 'bg-amber-500/30 text-amber-200' : 'bg-emerald-500/30 text-emerald-200'
-                      }`}
+                      className={`inline-block mt-1 text-xs px-2.5 py-0.5 rounded-full ${esTardanza ? 'bg-amber-500/30 text-amber-200' : 'bg-emerald-500/30 text-emerald-200'
+                        }`}
                     >
                       {esTardanza ? 'Fuera de hora - Tardanza' : 'A tiempo'}
                     </span>
@@ -672,15 +754,32 @@ export default function App() {
                   </div>
                 </form>
 
+                {/* TARJETA DE VERIFICACIÓN CON FOTO MEDIANA DEL ROSTRO */}
                 {mensaje && (
                   <div
-                    className={`mt-4 p-4 rounded-xl text-sm font-medium ${
-                      mensaje.tipo === 'exito'
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : 'bg-red-50 text-red-700 border border-red-200'
-                    }`}
+                    className={`mt-5 p-4 rounded-xl border ${mensaje.tipo === 'exito'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-red-50 text-red-700 border-red-200 text-sm font-medium'
+                      }`}
                   >
-                    {mensaje.texto}
+                    {mensaje.tipo === 'exito' ? (
+                      <div className="flex items-center gap-4">
+                        <AvatarDocente
+                          fotoUrl={mensaje.fotoUrl}
+                          nombre={mensaje.docente}
+                          className="w-24 h-24 text-2xl"
+                        />
+                        <div className="space-y-1">
+                          <span className="inline-block text-xs font-semibold uppercase tracking-wide bg-emerald-600 text-white px-2.5 py-0.5 rounded-full">
+                            Identidad Verificada
+                          </span>
+                          <h4 className="text-lg font-bold text-slate-900">{mensaje.docente}</h4>
+                          <p className="text-sm text-emerald-800 font-medium">{mensaje.texto}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      mensaje.texto
+                    )}
                   </div>
                 )}
               </div>
@@ -699,21 +798,30 @@ export default function App() {
                 ) : (
                   <div className="space-y-3 max-h-96 overflow-y-auto">
                     {marcajesHoy.map((m, i) => (
-                      <div key={m.id || i} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <p className="font-semibold text-sm text-slate-800">{m.docente}</p>
-                        <div className="flex items-center justify-between text-xs text-slate-500 mt-1">
-                          <span>Entrada: {m.hora}</span>
-                          <span>Salida: {m.hora_salida || 'Pendiente'}</span>
+                      <div
+                        key={m.id || i}
+                        className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-3"
+                      >
+                        <AvatarDocente
+                          fotoUrl={m.foto_url}
+                          nombre={m.docente}
+                          className="w-11 h-11 text-xs"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm text-slate-800 truncate">{m.docente}</p>
+                          <div className="flex items-center justify-between text-xs text-slate-500 mt-1">
+                            <span>Entrada: {m.hora}</span>
+                            <span>Salida: {m.hora_salida || 'Pendiente'}</span>
+                          </div>
+                          <span
+                            className={`inline-block mt-1.5 text-xs px-2 py-0.5 rounded-full font-medium ${m.estado === 'Tardanza'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                              }`}
+                          >
+                            {m.estado}
+                          </span>
                         </div>
-                        <span
-                          className={`inline-block mt-1.5 text-xs px-2 py-0.5 rounded-full font-medium ${
-                            m.estado === 'Tardanza'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-emerald-100 text-emerald-700'
-                          }`}
-                        >
-                          {m.estado}
-                        </span>
                       </div>
                     ))}
                   </div>
@@ -739,6 +847,32 @@ export default function App() {
                 </h3>
 
                 <form onSubmit={handleAgregarDocente} className="space-y-3">
+                  {/* VISTA PREVIA Y SELECTOR DE FOTO DEL ROSTRO */}
+                  <div className="flex flex-col items-center pb-2">
+                    {previewFoto ? (
+                      <img
+                        src={previewFoto}
+                        alt="Vista previa docente"
+                        className="w-24 h-24 rounded-full object-cover object-top border-2 border-blue-500 shadow-sm mb-2"
+                      />
+                    ) : (
+                      <div className="w-24 h-24 rounded-full bg-slate-100 border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 mb-2">
+                        <Camera className="w-6 h-6 mb-1" />
+                        <span className="text-[10px] font-medium">Sin foto</span>
+                      </div>
+                    )}
+                    <label className="cursor-pointer text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition">
+                      {previewFoto ? 'Cambiar foto de rostro' : 'Subir foto de rostro'}
+                      <input
+                        ref={fotoInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleSeleccionarFoto}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">DNI (Usuario)</label>
                     <input
@@ -784,19 +918,19 @@ export default function App() {
 
                   <button
                     type="submit"
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl text-sm transition"
+                    disabled={guardandoDocente}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl text-sm transition disabled:opacity-50"
                   >
-                    Guardar Docente
+                    {guardandoDocente ? 'Guardando docente...' : 'Guardar Docente'}
                   </button>
                 </form>
 
                 {mensajeDocente && (
                   <div
-                    className={`mt-4 p-3 rounded-xl text-xs ${
-                      mensajeDocente.tipo === 'exito'
+                    className={`mt-4 p-3 rounded-xl text-xs ${mensajeDocente.tipo === 'exito'
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         : 'bg-red-50 text-red-700 border border-red-200'
-                    }`}
+                      }`}
                   >
                     {mensajeDocente.texto}
                   </div>
@@ -819,7 +953,16 @@ export default function App() {
                         <tr key={d.id}>
                           <td className="py-3 font-mono text-blue-700">{d.dni}</td>
                           <td className="py-3 font-medium text-slate-800">
-                            {d.nombres} {d.apellidos}
+                            <div className="flex items-center gap-3">
+                              <AvatarDocente
+                                fotoUrl={d.foto_url}
+                                nombre={`${d.nombres} ${d.apellidos}`}
+                                className="w-10 h-10 text-xs"
+                              />
+                              <span>
+                                {d.nombres} {d.apellidos}
+                              </span>
+                            </div>
                           </td>
                           <td className="py-3">
                             <span className="text-xs bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">
@@ -926,11 +1069,10 @@ export default function App() {
                       <td className="py-3 font-mono text-slate-700">{m.hora_salida || 'Pendiente'}</td>
                       <td className="py-3">
                         <span
-                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                            m.estado === 'Tardanza'
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${m.estado === 'Tardanza'
                               ? 'bg-red-100 text-red-700'
                               : 'bg-emerald-100 text-emerald-700'
-                          }`}
+                            }`}
                         >
                           {m.estado}
                         </span>
@@ -995,13 +1137,12 @@ export default function App() {
                       </td>
                       <td className="py-3">
                         <span
-                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                            j.estado === 'Aprobada'
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${j.estado === 'Aprobada'
                               ? 'bg-emerald-100 text-emerald-700'
                               : j.estado === 'Rechazada'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-amber-100 text-amber-700'
-                          }`}
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
                         >
                           {j.estado}
                         </span>
@@ -1065,11 +1206,10 @@ export default function App() {
                       <td className="py-3 font-mono text-slate-700">{a.hora_salida || 'Pendiente'}</td>
                       <td className="py-3">
                         <span
-                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                            a.estado === 'Tardanza'
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${a.estado === 'Tardanza'
                               ? 'bg-red-100 text-red-700'
                               : 'bg-emerald-100 text-emerald-700'
-                          }`}
+                            }`}
                         >
                           {a.estado}
                         </span>
@@ -1145,11 +1285,10 @@ export default function App() {
 
               {mensajeJustificacion && (
                 <div
-                  className={`mt-4 p-3 rounded-xl text-sm ${
-                    mensajeJustificacion.tipo === 'exito'
+                  className={`mt-4 p-3 rounded-xl text-sm ${mensajeJustificacion.tipo === 'exito'
                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                       : 'bg-red-50 text-red-700 border border-red-200'
-                  }`}
+                    }`}
                 >
                   {mensajeJustificacion.texto}
                 </div>
@@ -1188,13 +1327,12 @@ export default function App() {
                       </td>
                       <td className="py-3">
                         <span
-                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                            j.estado === 'Aprobada'
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium ${j.estado === 'Aprobada'
                               ? 'bg-emerald-100 text-emerald-700'
                               : j.estado === 'Rechazada'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-amber-100 text-amber-700'
-                          }`}
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
                         >
                           {j.estado}
                         </span>
